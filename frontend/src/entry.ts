@@ -1,5 +1,4 @@
-// The rules for the number being typed, as pure string functions so the keypad component
-// stays a thin wrapper over them.
+// The rules for the number being typed, kept pure so the keypad stays a thin wrapper.
 
 export function appendDigit(entry: string, digit: string, replace: boolean): string {
   if (replace || entry === '0') {

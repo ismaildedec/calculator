@@ -34,6 +34,8 @@ func TestOperationsSucceed(t *testing.T) {
 		{name: "divide", path: "/api/v1/divide", body: `{"a":10,"b":4}`, want: 2.5},
 		{name: "power", path: "/api/v1/power", body: `{"a":2,"b":10}`, want: 1024},
 		{name: "percentage", path: "/api/v1/percentage", body: `{"a":200,"b":15}`, want: 30},
+		{name: "percentage survives an intermediate overflow", path: "/api/v1/percentage", body: `{"a":1e300,"b":1e10}`, want: 1e308},
+		{name: "trailing whitespace is accepted", path: "/api/v1/percentage", body: "{\"a\":200,\"b\":15}\n  ", want: 30},
 		{name: "sqrt", path: "/api/v1/sqrt", body: `{"a":9}`, want: 3},
 		{name: "negative operands", path: "/api/v1/add", body: `{"a":-2,"b":-3}`, want: -5},
 		{name: "float64 rounding is passed through", path: "/api/v1/add", body: `{"a":0.1,"b":0.2}`, want: 0.30000000000000004},
@@ -184,6 +186,14 @@ func TestErrorResponses(t *testing.T) {
 			wantStatus: http.StatusBadRequest, wantCode: codeInvalidJSON,
 		},
 		{
+			name: "a stray closing brace after the object", method: http.MethodPost, path: "/api/v1/add", body: `{"a":1,"b":2}}`,
+			wantStatus: http.StatusBadRequest, wantCode: codeInvalidJSON,
+		},
+		{
+			name: "a stray closing bracket after the object", method: http.MethodPost, path: "/api/v1/add", body: `{"a":1,"b":2}]`,
+			wantStatus: http.StatusBadRequest, wantCode: codeInvalidJSON,
+		},
+		{
 			name: "body is an array", method: http.MethodPost, path: "/api/v1/add", body: `[1,2]`,
 			wantStatus: http.StatusBadRequest, wantCode: codeInvalidJSON,
 		},
@@ -241,6 +251,28 @@ func TestSuccessfulResponseCarriesNoErrorObject(t *testing.T) {
 	}
 }
 
+func TestEveryOperationRejectsOtherMethods(t *testing.T) {
+	for _, operation := range operations {
+		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+			t.Run(operation.name+" "+method, func(t *testing.T) {
+				rec := send(t, method, "/api/v1/"+operation.name, "")
+
+				if rec.Code != http.StatusMethodNotAllowed {
+					t.Fatalf("status = %d, want 405. body: %s", rec.Code, rec.Body.String())
+				}
+
+				var resp errorResponse
+				if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+					t.Fatalf("response is not valid JSON: %v. body: %s", err, rec.Body.String())
+				}
+				if resp.Error.Code != codeMethodNotAllowed {
+					t.Errorf("code = %q, want %q", resp.Error.Code, codeMethodNotAllowed)
+				}
+			})
+		}
+	}
+}
+
 func TestMethodNotAllowedAdvertisesPost(t *testing.T) {
 	rec := send(t, http.MethodGet, "/api/v1/divide", "")
 
@@ -279,9 +311,7 @@ func TestCORSHeaderIsPresentOnNormalResponses(t *testing.T) {
 	}
 }
 
-// calc never returns a non-finite result, so this branch is a defence rather than a
-// reachable path. The test proves the defence answers with the error contract instead of
-// a half-written body.
+// calc never returns a non-finite result, so this branch is a defence, not a live path.
 func TestWriteJSONFallsBackWhenEncodingFails(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writeJSON(rec, http.StatusOK, math.NaN())

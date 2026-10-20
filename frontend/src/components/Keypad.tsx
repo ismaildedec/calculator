@@ -1,17 +1,21 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { calculate } from '../api/client'
 import type { CalculationOutcome } from '../api/client'
 import type { OperationId } from '../api/types'
 import { appendDigit, appendDot, entryToOperand, removeLast, toggleSign } from '../entry'
+import type { BinaryOperationId } from '../operations'
 import { operationById } from '../operations'
 
-type BinaryOperationId = Exclude<OperationId, 'sqrt'>
+// A single "replace the entry" flag cannot express this: a result and a waiting operator
+// both replace the entry, but only one means "no right-hand operand exists yet".
+type Stage = 'typing' | 'operatorPending' | 'result'
 
 interface Key {
   label: string
   name: string
   variant: 'digit' | 'function' | 'operator' | 'equals'
   press: () => void
+  keyboard?: string[]
   span?: number
 }
 
@@ -21,11 +25,10 @@ export function Keypad() {
   const [entry, setEntry] = useState('0')
   const [accumulator, setAccumulator] = useState<number | null>(null)
   const [pending, setPending] = useState<BinaryOperationId | null>(null)
+  const [stage, setStage] = useState<Stage>('result')
   const [expression, setExpression] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  // After a result or an operator, the next digit starts a new number instead of appending.
-  const [replace, setReplace] = useState(true)
 
   function clearAll() {
     setEntry('0')
@@ -33,13 +36,38 @@ export function Keypad() {
     setPending(null)
     setExpression('')
     setError(null)
-    setReplace(true)
+    setStage('result')
   }
 
-  function editEntry(next: string) {
+  function typeDigit(value: string) {
     setError(null)
-    setEntry(next)
-    setReplace(false)
+    setEntry((current) => appendDigit(current, value, stage !== 'typing'))
+    setStage('typing')
+  }
+
+  function typeDot() {
+    setError(null)
+    setEntry((current) => appendDot(current, stage !== 'typing'))
+    setStage('typing')
+  }
+
+  // While an operator waits, the only number on screen is the left operand.
+  function backspace() {
+    if (stage === 'operatorPending') {
+      return
+    }
+    setError(null)
+    // Half of a computed result is not a number: 1e+21 would silently become 1e+2.
+    setEntry((current) => (stage === 'result' ? '0' : removeLast(current)))
+    setStage('typing')
+  }
+
+  function toggleEntrySign() {
+    if (stage === 'operatorPending') {
+      return
+    }
+    setError(null)
+    setEntry((current) => toggleSign(current))
   }
 
   async function run(operation: OperationId, a: number, b?: number) {
@@ -49,17 +77,17 @@ export function Keypad() {
     return outcome
   }
 
+  // The operand on screen is left alone so it can be corrected and retried.
   function fail(outcome: Extract<CalculationOutcome, { ok: false }>) {
     setError(outcome.message)
-    setReplace(true)
+    setStage('typing')
   }
 
   async function pressOperator(operation: BinaryOperationId) {
     setError(null)
     const symbol = operationById(operation).symbol
 
-    // Two operators in a row only changes which one is waiting.
-    if (replace && accumulator !== null) {
+    if (stage === 'operatorPending') {
       setPending(operation)
       setExpression(`${accumulator} ${symbol}`)
       return
@@ -85,7 +113,7 @@ export function Keypad() {
     setAccumulator(left)
     setPending(operation)
     setExpression(`${left} ${symbol}`)
-    setReplace(true)
+    setStage('operatorPending')
   }
 
   async function pressEquals() {
@@ -110,7 +138,7 @@ export function Keypad() {
     setEntry(String(outcome.result))
     setAccumulator(null)
     setPending(null)
-    setReplace(true)
+    setStage('result')
   }
 
   async function pressSqrt() {
@@ -128,80 +156,91 @@ export function Keypad() {
       return
     }
 
-    setExpression(`√(${current}) =`)
+    const waiting =
+      pending !== null && accumulator !== null
+        ? `${accumulator} ${operationById(pending).symbol} `
+        : ''
+    setExpression(`${waiting}√(${current})`)
     setEntry(String(outcome.result))
-    setReplace(true)
+    setStage('result')
   }
 
   const digit = (value: string): Key => ({
     label: value,
     name: value,
     variant: 'digit',
-    press: () => editEntry(appendDigit(entry, value, replace)),
+    press: () => typeDigit(value),
+    keyboard: [value],
   })
 
-  const operator = (operation: BinaryOperationId): Key => {
+  const operator = (operation: BinaryOperationId, keyboard: string[]): Key => {
     const { symbol, label } = operationById(operation)
-    return { label: symbol, name: label, variant: 'operator', press: () => void pressOperator(operation) }
+    return {
+      label: symbol,
+      name: label,
+      variant: 'operator',
+      press: () => void pressOperator(operation),
+      keyboard,
+    }
   }
 
   const rows: Key[][] = [
     [
-      { label: 'AC', name: 'Clear all', variant: 'function', press: clearAll },
-      { label: '⌫', name: 'Backspace', variant: 'function', press: () => editEntry(removeLast(entry)) },
-      operator('percentage'),
-      operator('power'),
+      { label: 'AC', name: 'Clear all', variant: 'function', press: clearAll, keyboard: ['Escape'] },
+      { label: '⌫', name: 'Backspace', variant: 'function', press: backspace, keyboard: ['Backspace'] },
+      operator('percentage', ['%']),
+      operator('power', ['^']),
     ],
-    [digit('7'), digit('8'), digit('9'), operator('divide')],
-    [digit('4'), digit('5'), digit('6'), operator('multiply')],
-    [digit('1'), digit('2'), digit('3'), operator('subtract')],
+    [digit('7'), digit('8'), digit('9'), operator('divide', ['/'])],
+    [digit('4'), digit('5'), digit('6'), operator('multiply', ['*'])],
+    [digit('1'), digit('2'), digit('3'), operator('subtract', ['-'])],
     [
-      { label: '±', name: 'Toggle sign', variant: 'function', press: () => editEntry(toggleSign(entry)) },
+      { label: '±', name: 'Toggle sign', variant: 'function', press: toggleEntrySign },
       digit('0'),
-      { label: '.', name: 'Decimal point', variant: 'function', press: () => editEntry(appendDot(entry, replace)) },
-      operator('add'),
+      { label: '.', name: 'Decimal point', variant: 'function', press: typeDot, keyboard: ['.', ','] },
+      operator('add', ['+']),
     ],
     [
       { label: '√', name: 'Square root', variant: 'function', press: () => void pressSqrt() },
-      { label: '=', name: 'Equals', variant: 'equals', press: () => void pressEquals(), span: 3 },
+      {
+        label: '=',
+        name: 'Equals',
+        variant: 'equals',
+        press: () => void pressEquals(),
+        keyboard: ['Enter', '='],
+        span: 3,
+      },
     ],
   ]
 
-  // Re-registered on every render so the handler always closes over current state.
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (busy) {
-        return
-      }
+  const keys = rows.flat()
 
-      const byKey: Record<string, (() => void) | undefined> = {
-        '.': () => editEntry(appendDot(entry, replace)),
-        ',': () => editEntry(appendDot(entry, replace)),
-        '+': () => void pressOperator('add'),
-        '-': () => void pressOperator('subtract'),
-        '*': () => void pressOperator('multiply'),
-        '/': () => void pressOperator('divide'),
-        '^': () => void pressOperator('power'),
-        '%': () => void pressOperator('percentage'),
-        '=': () => void pressEquals(),
-        Enter: () => void pressEquals(),
-        Backspace: () => editEntry(removeLast(entry)),
-        Escape: clearAll,
-      }
-
-      const action = /^[0-9]$/.test(event.key)
-        ? () => editEntry(appendDigit(entry, event.key, replace))
-        : byKey[event.key]
-
-      if (action) {
-        event.preventDefault()
-        action()
-      }
+  function handleKeyDown(event: KeyboardEvent) {
+    // Without this, Ctrl+0 and Ctrl+- would be swallowed instead of zooming the page.
+    if (busy || event.ctrlKey || event.metaKey || event.altKey) {
+      return
     }
 
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    const match = keys.find((key) => key.keyboard?.includes(event.key))
+    if (!match) {
+      return
+    }
+
+    event.preventDefault()
+    match.press()
+  }
+
+  const latestKeyHandler = useRef(handleKeyDown)
+  useEffect(() => {
+    latestKeyHandler.current = handleKeyDown
   })
+
+  // Registered once: re-binding on every render would churn a listener per key press.
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => latestKeyHandler.current(event)
+    window.addEventListener('keydown', listener)
+    return () => window.removeEventListener('keydown', listener)
+  }, [])
 
   return (
     <div className="calculator">
@@ -218,7 +257,7 @@ export function Keypad() {
       </div>
 
       <div className="keys">
-        {rows.flat().map((key) => (
+        {keys.map((key) => (
           <button
             key={key.name}
             type="button"

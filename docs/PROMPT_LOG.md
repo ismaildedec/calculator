@@ -958,3 +958,115 @@ enabled during a request.
 The images were rebuilt and the stack checked again: percentage answers `30` through the
 nginx proxy, the keypad's own strings are present in the shipped bundle, and the base URL
 is still resolved same-origin inside the image.
+
+---
+
+## Entry 008 - Acting on two code reviews
+
+### Instruction received
+
+> I am going to send you review findings. Verify each one in detail, without sampling.
+> Backend first, then frontend.
+
+Fifteen findings arrived in two batches. Every one was checked by measurement rather than
+by reading and agreeing; three turned out to need correcting or qualifying, which is the
+reason for the measurements.
+
+### Backend: five findings
+
+**Percentage overflowed on the intermediate product.** Confirmed. `a*b/100` computes the
+product first, so `{"a":1e300,"b":1e10}` was answered with 422 although `1e308` is an
+ordinary `float64`.
+
+The review suggested dividing first. Measuring four implementations showed a cost it did
+not mention:
+
+| case | `a*b/100` | `a/100*b` | `a*(b/100)` | retry on overflow |
+| --- | --- | --- | --- | --- |
+| `7 % 3` | `0.21` | `0.21000000000000002` | `0.21` | `0.21` |
+| `1e10 % 1e-323` | `9.88e-316` | `9.88e-316` | `0` | `9.88e-316` |
+| `1e300 % 1e10` | rejected | `1e308` | `1e308` | `1e308` |
+
+Each single ordering trades one defect for another. What shipped keeps the product on the
+normal path and only scales down when it overflows, so every case that worked before is
+bit-for-bit unchanged and only the wrongly rejected ones move.
+
+**The overflow test could not have caught it.** Confirmed: `MaxFloat64 * MaxFloat64`
+overflows under every ordering, so it passes either way. Replaced with cases that
+discriminate, and the discrimination was then proved by mutation - reverting to the buggy
+form kills the suite, and so does the naive fix.
+
+**`dec.More()` accepted a stray closing delimiter.** Confirmed exactly as described:
+`{"a":200,"b":15}}` returned 200. Measuring the neighbouring cases showed the guard
+otherwise worked - `}{...}`, trailing text and a trailing comma were all rejected - so
+only closing delimiters slipped through, which is what `More()` is specified to do. The
+check is now that `dec.Token()` returns `io.EOF`, and trailing whitespace is still
+accepted.
+
+**The operation list lived in two places.** The duplication is real; this change had to
+edit both. The stated consequence was not: with one operation deliberately dropped from
+the fallback list, a `GET` on it answered **404 with the JSON error body**, not the
+plain-text 405 the finding predicted, because the catch-all route picks it up. So the
+error contract was never at risk - only the accuracy of the status code. The accurate part
+of the finding stands on its own: the existing tests did not notice the drift at all. One
+`{name, handler}` table now drives both registrations, and a test iterating that table
+checks every operation rejects `GET`, `PUT` and `DELETE`.
+
+**Six identical handlers.** Confirmed by measurement: with the operation name stripped,
+all six binary handler bodies hash identically. This is the option A versus B decision
+from entry 001, taken by the author with both options and their costs in front of them and
+written up in the README. A review is not a reason to quietly reverse a decision somebody
+made on purpose, so it was put back to the author, who kept option A.
+
+### Frontend: ten findings
+
+Each claimed failure scenario was written as a test before anything was changed. All six
+that could be expressed that way failed, confirming the findings; the file was deleted
+afterwards and the scenarios kept as permanent regression tests.
+
+Three of them - a square root being discarded inside a pending operation, a failure leaving
+state that no longer matched the display, and backspace editing the left operand - had one
+cause. The `replace` flag meant "the next digit starts a new number", and the code was also
+using it to mean "the last key was an operator". Those coincide for a waiting operator and
+for a fresh result, which is exactly where the bugs were. It is now an explicit stage:
+`typing`, `operatorPending` or `result`.
+
+The rest: keystrokes held with `Ctrl`, `Cmd` or `Alt` are left to the browser, so `Ctrl+0`
+no longer types a zero instead of resetting the zoom; a computed result is cleared rather
+than half-edited, because `1e+21` minus its last character is `1e+2` and `1e-7` minus its
+last character is not a number at all; the keyboard map is built from the same table the
+buttons come from, so the two cannot drift; the key listener is registered once instead of
+being torn down and rebuilt on every render - measured at six registrations and five
+removals for five key presses; and arity is now derived from `operandCount` in the
+operation table rather than from a hand-written `Exclude<OperationId, 'sqrt'>`.
+
+The last finding, that the deleted validation tests left a gap, is half right. Most of what
+they covered - whitespace, letters, suffixes, a lone minus sign - cannot be produced by a
+keypad at all. The part that was real is the exponent-form case above, and it now has
+tests.
+
+### Two mistakes of my own in this round
+
+The first fix verification for the preview finding reported a failure. The fix was correct;
+a `vite preview` process left running from the measurement *before* the fix was still
+holding port 4173, so the new server never bound and curl was talking to the old one. Six
+stray Node processes from earlier phases were cleaned up. This is the second time in this
+project a verification failed for a reason that had nothing to do with the code, after the
+grep for a string literal in entry 006.
+
+The other: a worked example written into the README claimed that 15 percent of `1e300`
+overflows. It does not - the product is `1.5e301`, comfortably inside the range. Caught by
+re-checking the arithmetic before the README was finished, and replaced with the case that
+was actually measured.
+
+### Where it stands
+
+| | |
+| --- | --- |
+| Backend | 17 test functions, 112 sub-tests, 94.5% statements |
+| Frontend | 80 tests, 100% statements, branches, functions and lines |
+| Mutations | 50, all killed (26 backend, 24 frontend) |
+
+Both images were rebuilt and the stack re-checked through nginx: `1e300 % 1e10` answers
+`1e308`, `7 % 3` still answers `0.21`, a stray closing brace is a 400, and `PUT` on an
+operation is a JSON 405.

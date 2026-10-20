@@ -61,8 +61,7 @@ describe('calculate', () => {
     expect(requestInit().body).toBe('{"a":10,"b":4}')
   })
 
-  // The service rejects unknown fields, so sending b to a unary operation would turn a
-  // valid request into a 400.
+  // The service rejects unknown fields, so sending b here would turn this into a 400.
   it('omits the second operand for a unary operation', async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { operation: 'sqrt', result: 3 }))
 

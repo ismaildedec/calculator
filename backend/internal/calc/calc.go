@@ -30,8 +30,15 @@ func Power(a, b float64) (float64, error) {
 }
 
 // Percentage returns b percent of a, so Percentage(200, 15) is 30.
+//
+// a*b can overflow while the answer is still representable, so it is only used when it
+// survives. Dividing first in every case would cost precision: 7 percent of 3 is 0.21
+// one way and 0.21000000000000002 the other.
 func Percentage(a, b float64) (float64, error) {
-	return finite(a * b / 100)
+	if product := a * b; !math.IsInf(product, 0) {
+		return finite(product / 100)
+	}
+	return finite(a / 100 * b)
 }
 
 func Sqrt(a float64) (float64, error) {

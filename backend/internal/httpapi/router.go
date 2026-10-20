@@ -2,21 +2,30 @@ package httpapi
 
 import "net/http"
 
+// One list drives both registrations each operation needs, so an operation cannot end up
+// in the POST routes without its method fallback.
+var operations = []struct {
+	name    string
+	handler http.HandlerFunc
+}{
+	{"add", handleAdd},
+	{"subtract", handleSubtract},
+	{"multiply", handleMultiply},
+	{"divide", handleDivide},
+	{"power", handlePower},
+	{"percentage", handlePercentage},
+	{"sqrt", handleSqrt},
+}
+
 func NewRouter(allowedOrigin string) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("POST /api/v1/add", handleAdd)
-	mux.HandleFunc("POST /api/v1/subtract", handleSubtract)
-	mux.HandleFunc("POST /api/v1/multiply", handleMultiply)
-	mux.HandleFunc("POST /api/v1/divide", handleDivide)
-	mux.HandleFunc("POST /api/v1/power", handlePower)
-	mux.HandleFunc("POST /api/v1/percentage", handlePercentage)
-	mux.HandleFunc("POST /api/v1/sqrt", handleSqrt)
+	for _, operation := range operations {
+		mux.HandleFunc("POST /api/v1/"+operation.name, operation.handler)
 
-	// The patterns above match POST only. Without these the mux would answer any other
-	// method with its own plain-text 405, breaking the JSON error contract.
-	for _, op := range []string{"add", "subtract", "multiply", "divide", "power", "percentage", "sqrt"} {
-		mux.HandleFunc("/api/v1/"+op, handleMethodNotAllowed)
+		// The pattern above matches POST only; without this one the mux answers every other
+		// method with its own plain-text 405.
+		mux.HandleFunc("/api/v1/"+operation.name, handleMethodNotAllowed)
 	}
 
 	mux.HandleFunc("/", handleNotFound)

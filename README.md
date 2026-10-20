@@ -167,6 +167,9 @@ curl -i -X GET http://localhost:8080/api/v1/add
 Under Docker the same calls work through the frontend's origin, for example
 `curl -X POST http://localhost:3000/api/v1/add ...`, because nginx proxies `/api/`.
 
+`npm run preview`, which serves a production build without nginx, proxies `/api` to
+`localhost:8080` so that it works the same way; start the backend first.
+
 ## Tests
 
 ```bash
@@ -250,6 +253,13 @@ The operation is ambiguous in general - it could as easily mean "a is what perce
 so one reading was chosen and is stated here and in the API table. On the keypad it behaves
 like any other binary operator: `200 % 15 =` is 30.
 
+It is computed as `a * b / 100`, but only while that product is finite. `a * b` can
+overflow when the answer itself is representable: `{"a": 1e300, "b": 1e10}` has the answer
+`1e308`, an ordinary `float64`, while the intermediate product `1e310` is not. The operands
+are scaled down and the calculation retried in that case. Dividing first in every case
+would have been simpler and slightly wrong: `7 % 3` would return `0.21000000000000002`
+instead of `0.21`.
+
 ### The keypad evaluates left to right, with no operator precedence
 
 `2 + 3 × 4` is **20**, not 14, exactly as a standard pocket calculator behaves. Pressing an
@@ -268,19 +278,40 @@ Everything that is actually arithmetic - the six binary operators and `√` - is
 `√` applies immediately to whatever is on the display; the binary operators wait for `=` or
 for the next operator.
 
+### What the last key did decides what the next one means
+
+The keypad tracks three states rather than a single "replace the entry" flag: a number is
+being typed, an operator is waiting for its right-hand side, or a value has just been
+computed. A single flag conflates the last two, because a result and a waiting operator
+both mean the next digit starts a new number - and that conflation is what makes a
+calculator drop a value.
+
+Two consequences are deliberate:
+
+- Right after an operator, `⌫` and `±` do nothing. No right-hand operand has been typed
+  yet, so the only number on screen is the left one, and editing it there would silently
+  turn `8 +` into a different calculation.
+- `⌫` on a computed result clears it to `0` instead of removing a character. Half of
+  `1e+21` is not a number, and trimming it would quietly turn it into `1e+2`.
+
 ### The keyboard works as well as the keys
 
 `0`-`9`, `.` and `,` for the decimal point, `+ - * / ^ %`, `Enter` or `=` to evaluate,
-`Backspace` to delete, `Escape` to clear. Keystrokes are ignored while a request is in
-flight, as are the buttons, which are disabled.
+`Backspace` to delete, `Escape` to clear. The mapping is built from the same table the
+buttons are rendered from, so a key cannot behave one way when clicked and another when
+typed.
+
+Keys held with `Ctrl`, `Cmd` or `Alt` are left to the browser, so `Ctrl+0` still resets the
+zoom instead of typing a zero. Keystrokes are ignored while a request is in flight, as are
+the buttons, which are disabled.
 
 ### Validation happens on both sides
 
-The keypad cannot produce a malformed number - there is no way to type two decimal points
-or leave the entry empty - so those rules are enforced in the entry logic and tested
-directly. It can still produce a number too large for a `float64`: enough digits and
-JavaScript's `Number` gives `Infinity`, which `JSON.stringify` would send as `null`. That
-case is caught before a request is made.
+The keypad cannot produce a malformed number - there is no way to type two decimal points,
+leave the entry empty, or half-edit a computed result - so those rules live in the entry
+logic and are tested directly. It can still produce a number too large for a `float64`:
+enough digits and JavaScript's `Number` gives `Infinity`, which `JSON.stringify` would send
+as `null`. That case is caught before a request is made.
 
 The backend validates everything again regardless, because an API cannot trust its callers.
 

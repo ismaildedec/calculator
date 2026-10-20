@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { calculate } from '../api/client'
 import type { CalculationOutcome } from '../api/client'
+import { OPERATIONS } from '../operations'
 import { Keypad } from './Keypad'
 
 vi.mock('../api/client', () => ({ calculate: vi.fn() }))
@@ -32,6 +33,14 @@ describe('Keypad', () => {
     render(<Keypad />)
 
     expect(display()).toBe('0')
+  })
+
+  it('has a key for every operation the service offers', () => {
+    render(<Keypad />)
+
+    for (const operation of OPERATIONS) {
+      expect(screen.getByRole('button', { name: operation.label })).toBeInTheDocument()
+    }
   })
 
   it('builds a number from digits without calling the service', async () => {
@@ -165,7 +174,7 @@ describe('Keypad', () => {
 
     expect(calculateMock).toHaveBeenCalledExactlyOnceWith('sqrt', { a: 9 })
     expect(display()).toBe('3')
-    expect(expression()).toBe('√(9) =')
+    expect(expression()).toBe('√(9)')
   })
 
   it('sends percentage as a binary operation', async () => {
@@ -248,7 +257,7 @@ describe('Keypad', () => {
   })
 
   it('refuses an entry too large for float64 instead of sending it', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<Keypad />)
 
     await user.click(key('9'))
@@ -260,7 +269,7 @@ describe('Keypad', () => {
   })
 
   it('refuses an oversized entry when an operator is pressed', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<Keypad />)
 
     await user.click(key('9'))
@@ -272,7 +281,7 @@ describe('Keypad', () => {
   })
 
   it('refuses an oversized second operand on equals', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<Keypad />)
 
     await press(user, '2', 'Add', '9')
@@ -329,6 +338,124 @@ describe('Keypad', () => {
 
     expect(await screen.findByText('5')).toBeInTheDocument()
     expect(key('Equals')).toBeEnabled()
+  })
+
+  describe('state left by one key for the next', () => {
+    it('keeps a square root taken inside a pending operation', async () => {
+      const user = userEvent.setup()
+      calculateMock.mockResolvedValueOnce({ ok: true, result: 4 })
+      calculateMock.mockResolvedValueOnce({ ok: true, result: 13 })
+      calculateMock.mockResolvedValueOnce({ ok: true, result: 26 })
+      render(<Keypad />)
+
+      await press(user, '9', 'Add', '1', '6', 'Square root')
+      expect(display()).toBe('4')
+
+      await press(user, 'Multiply', '2', 'Equals')
+
+      expect(calculateMock).toHaveBeenNthCalledWith(2, 'add', { a: 9, b: 4 })
+      expect(display()).toBe('26')
+    })
+
+    it('shows the pending operation alongside a square root', async () => {
+      const user = userEvent.setup()
+      calculateMock.mockResolvedValue({ ok: true, result: 4 })
+      render(<Keypad />)
+
+      await press(user, '9', 'Add', '1', '6', 'Square root')
+
+      expect(expression()).toBe('9 + √(16)')
+    })
+
+    it('retries rather than silently swapping the operator after a failure', async () => {
+      const user = userEvent.setup()
+      calculateMock.mockResolvedValue({
+        ok: false,
+        code: 'DIVISION_BY_ZERO',
+        message: 'division by zero is not allowed',
+      })
+      render(<Keypad />)
+
+      await press(user, '1', 'Divide', '0', 'Add')
+      expect(await screen.findByRole('alert')).toBeInTheDocument()
+
+      await press(user, 'Multiply')
+
+      expect(expression()).toBe('1 ÷')
+      expect(calculateMock).toHaveBeenCalledTimes(2)
+      expect(screen.getByRole('alert')).toHaveTextContent('division by zero is not allowed')
+    })
+
+    it('lets a failed operand be corrected and the calculation retried', async () => {
+      const user = userEvent.setup()
+      calculateMock.mockResolvedValueOnce({
+        ok: false,
+        code: 'DIVISION_BY_ZERO',
+        message: 'division by zero is not allowed',
+      })
+      calculateMock.mockResolvedValueOnce({ ok: true, result: 0.2 })
+      render(<Keypad />)
+
+      await press(user, '1', 'Divide', '0', 'Equals')
+      expect(await screen.findByRole('alert')).toBeInTheDocument()
+
+      await press(user, 'Backspace', '5', 'Equals')
+
+      expect(calculateMock).toHaveBeenNthCalledWith(2, 'divide', { a: 1, b: 5 })
+      expect(display()).toBe('0.2')
+    })
+
+    it('ignores backspace and sign toggle while no right operand has been typed', async () => {
+      const user = userEvent.setup()
+      calculateMock.mockResolvedValue({ ok: true, result: 16 })
+      render(<Keypad />)
+
+      await press(user, '8', 'Add', 'Backspace', 'Toggle sign')
+
+      expect(display()).toBe('8')
+
+      await press(user, 'Equals')
+      expect(calculateMock).toHaveBeenCalledExactlyOnceWith('add', { a: 8, b: 8 })
+    })
+
+    it('clears a computed result rather than editing half of it', async () => {
+      const user = userEvent.setup()
+      calculateMock.mockResolvedValue({ ok: true, result: 1e21 })
+      render(<Keypad />)
+
+      await press(user, '1', 'Add', '1', 'Equals')
+      expect(display()).toBe('1e+21')
+
+      await press(user, 'Backspace')
+
+      expect(display()).toBe('0')
+    })
+
+    it('does not report an exponent-form result as too large', async () => {
+      const user = userEvent.setup()
+      calculateMock.mockResolvedValue({ ok: true, result: 1e-7 })
+      render(<Keypad />)
+
+      await press(user, '1', 'Divide', '7', 'Equals')
+      expect(display()).toBe('1e-7')
+
+      await press(user, 'Add')
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(expression()).toBe('1e-7 +')
+    })
+
+    it('negates a result without starting to append to it', async () => {
+      const user = userEvent.setup()
+      calculateMock.mockResolvedValue({ ok: true, result: 5 })
+      render(<Keypad />)
+
+      await press(user, '2', 'Add', '3', 'Equals', 'Toggle sign')
+      expect(display()).toBe('-5')
+
+      await press(user, '7')
+      expect(display()).toBe('7')
+    })
   })
 
   describe('keyboard', () => {
@@ -404,6 +531,47 @@ describe('Keypad', () => {
 
       release({ ok: true, result: 5 })
       expect(await screen.findByText('5')).toBeInTheDocument()
+    })
+
+    it('leaves browser shortcuts alone', async () => {
+      const user = userEvent.setup()
+      render(<Keypad />)
+
+      await press(user, '5')
+
+      await user.keyboard('{Control>}0{/Control}')
+      await user.keyboard('{Control>}-{/Control}')
+      await user.keyboard('{Alt>}5{/Alt}')
+
+      expect(display()).toBe('5')
+      expect(expression()).toBe('')
+      expect(calculateMock).not.toHaveBeenCalled()
+    })
+
+    it('ignores keys it does not map', async () => {
+      const user = userEvent.setup()
+      render(<Keypad />)
+
+      await press(user, '5')
+      await user.keyboard('abc{ArrowLeft}{ArrowRight}')
+
+      expect(display()).toBe('5')
+      expect(calculateMock).not.toHaveBeenCalled()
+    })
+
+    it('registers one listener regardless of how many keys are pressed', async () => {
+      const added = vi.spyOn(window, 'addEventListener')
+      const removed = vi.spyOn(window, 'removeEventListener')
+      const user = userEvent.setup()
+      render(<Keypad />)
+
+      await user.keyboard('12345')
+
+      expect(added.mock.calls.filter((call) => call[0] === 'keydown')).toHaveLength(1)
+      expect(removed.mock.calls.filter((call) => call[0] === 'keydown')).toHaveLength(0)
+
+      added.mockRestore()
+      removed.mockRestore()
     })
 
     it('accepts a comma as a decimal point', async () => {

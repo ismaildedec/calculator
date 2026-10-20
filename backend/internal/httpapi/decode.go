@@ -54,9 +54,9 @@ func decodeBody(r *http.Request, dst any) error {
 		return decodeError(err)
 	}
 
-	// Decode stops after the first JSON value, so anything following it would otherwise
-	// be accepted and ignored.
-	if dec.More() {
+	// dec.More() is not enough: it answers false for a stray closing delimiter, which would
+	// let {"a":1,"b":2}} through. Only a clean end of input is io.EOF.
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return newAPIError(http.StatusBadRequest, codeInvalidJSON, "unexpected content after the JSON object", "")
 	}
 	return nil

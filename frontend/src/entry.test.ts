@@ -76,8 +76,7 @@ describe('entryToOperand', () => {
     expect(entryToOperand('-0')).toBe(-0)
   })
 
-  // Reachable by holding a digit key: Number() gives Infinity, and JSON.stringify would
-  // then send null rather than a number.
+  // Reachable by holding a digit key.
   it('rejects a number too large for float64', () => {
     expect(entryToOperand('9'.repeat(400))).toBeNull()
   })

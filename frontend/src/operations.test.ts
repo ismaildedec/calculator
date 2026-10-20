@@ -3,8 +3,7 @@ import type { OperationId } from './api/types'
 import { OPERATIONS, operationById } from './operations'
 
 describe('OPERATIONS', () => {
-  // Pins the list to the endpoints the service exposes; an operation added on one side
-  // without the other should break here.
+  // Pins the list to the service's endpoints: adding to one side only breaks here.
   it('declares exactly the operations the service offers', () => {
     expect(OPERATIONS.map((operation) => operation.id)).toEqual([
       'add',

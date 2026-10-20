@@ -57,6 +57,10 @@ func TestBinaryOperations(t *testing.T) {
 		{name: "percentage of zero", op: Percentage, a: 0, b: 50, want: 0},
 		{name: "zero percent", op: Percentage, a: 200, b: 0, want: 0},
 		{name: "a whole hundred percent", op: Percentage, a: 42, b: 100, want: 42},
+		{name: "percentage exposes float64 rounding", op: Percentage, a: 7, b: 3, want: 0.21},
+		// Both fail if the product is taken before the division.
+		{name: "percentage survives an intermediate overflow", op: Percentage, a: 1e300, b: 1e10, want: 1e308},
+		{name: "a hundred percent of the largest float64", op: Percentage, a: math.MaxFloat64, b: 100, want: math.MaxFloat64},
 		{name: "percentage overflows the range", op: Percentage, a: math.MaxFloat64, b: math.MaxFloat64, wantErr: ErrNonFiniteResult},
 	}
 
@@ -143,7 +147,6 @@ func TestResultsNeverCarryNegativeZero(t *testing.T) {
 	}
 }
 
-// Pins down the premise the finite guard rests on.
 func TestJSONRejectsNonFiniteFloats(t *testing.T) {
 	for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
 		if _, err := json.Marshal(v); err == nil {
@@ -152,7 +155,6 @@ func TestJSONRejectsNonFiniteFloats(t *testing.T) {
 	}
 }
 
-// The guarantee the HTTP layer relies on: a successful result is always writable.
 func TestResultsAreAlwaysMarshalable(t *testing.T) {
 	operands := []float64{
 		0, math.Copysign(0, -1), 1, -1, 0.5, -0.5, 2, -2,

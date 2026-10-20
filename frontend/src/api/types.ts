@@ -10,8 +10,7 @@ export interface SuccessResponse {
   result: number
 }
 
-// field is a plain string rather than 'a' | 'b': an unknown-field error names whatever
-// the caller sent.
+// A plain string, not 'a' | 'b': an unknown-field error names whatever the caller sent.
 export interface ErrorResponse {
   error: {
     code: string
