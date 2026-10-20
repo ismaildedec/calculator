@@ -107,6 +107,34 @@ func TestSqrt(t *testing.T) {
 	}
 }
 
+// Checks the sign bit rather than equality, since -0 == 0 would pass either way.
+func TestResultsNeverCarryNegativeZero(t *testing.T) {
+	negativeZero := math.Copysign(0, -1)
+
+	tests := []struct {
+		name string
+		run  func() (float64, error)
+	}{
+		{name: "multiply a negative by zero", run: func() (float64, error) { return Multiply(-1, 0) }},
+		{name: "multiply by negative zero", run: func() (float64, error) { return Multiply(1, negativeZero) }},
+		{name: "add two negative zeros", run: func() (float64, error) { return Add(negativeZero, negativeZero) }},
+		{name: "divide negative zero", run: func() (float64, error) { return Divide(negativeZero, 5) }},
+		{name: "square root of negative zero", run: func() (float64, error) { return Sqrt(negativeZero) }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.run()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if math.Signbit(got) {
+				t.Errorf("result carries the sign bit, want positive zero")
+			}
+		})
+	}
+}
+
 // Pins down the premise the finite guard rests on.
 func TestJSONRejectsNonFiniteFloats(t *testing.T) {
 	for _, v := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {

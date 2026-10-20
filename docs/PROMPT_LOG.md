@@ -515,3 +515,91 @@ response, which is what the README will document as an assumption.
 
 Phase 4: the frontend - the two-operand form, a typed client, validation before the request
 is sent, rendering of the error contract, basic mobile support, and Vitest tests.
+
+---
+
+## Entry 004 - Three decisions from the author, applied
+
+### Instruction received
+
+> Normalise negative zero to 0.
+>
+> Do not add graceful shutdown. The service is stateless and requests take milliseconds;
+> there is nothing to drain. Write it in the README design decisions: "considered, not
+> added, for this reason."
+>
+> But do add the `http.Server` timeouts (`ReadHeaderTimeout`, `ReadTimeout`,
+> `WriteTimeout`, `IdleTimeout`). They contain no logic, produce no errors, and leaving
+> them out is a real omission in Go.
+>
+> If graceful shutdown is ever added: test that the process exits with a NON-ZERO code when
+> startup fails. Otherwise "I could not start" and "I shut down cleanly" look the same.
+
+### Negative zero
+
+Collapsed inside `finite`, so every operation benefits from one line rather than each one
+guarding separately.
+
+That line, `if v == 0 { return 0, nil }`, reads as a no-op and would be a natural thing for
+a later reader to delete as dead code, so it carries the only inline comment in the
+package body explaining that it is not redundant.
+
+The test checks `math.Signbit` rather than equality, because `-0 == 0` is true in Go and an
+equality assertion would have passed with or without the fix. Five paths that produce a
+negative zero are covered: multiplying a negative by zero, multiplying by a negative zero,
+adding two negative zeros, dividing a negative zero, and the square root of one.
+
+Verified by mutation: replacing the collapse with `if false` kills the suite, so the test
+is doing work. Verified end to end against a running server as well -
+`multiply {"a":-1,"b":0}` now answers `{"operation":"multiply","result":0}`, and
+`sqrt {"a":-0.0}` answers `0`.
+
+### Graceful shutdown: declined, with the reasoning recorded
+
+Not added. The reasoning is the author's and belongs in the README rather than only here:
+the service holds no state and a request is a single arithmetic operation, so there is no
+in-flight work a drain period would protect.
+
+### Timeouts
+
+`IdleTimeout` was missing and has been added alongside the three that were already there.
+The author's argument is the deciding one: these fields carry no logic and cannot fail, so
+including them costs nothing, while omitting them is a genuine gap in a Go server rather
+than a stylistic preference.
+
+### The exit-code requirement, measured now rather than assumed later
+
+The standing instruction above is recorded for whenever graceful shutdown appears. The
+current behaviour was measured rather than left to assumption: a second instance started on
+an already-bound port exits with **code 1** and logs the bind error, because
+`log.Fatal` is what handles a failed `ListenAndServe` at this point. So the requirement is already
+met, and the risk the author names only becomes live once a shutdown path exists - at that
+point `http.ErrServerClosed` has to be distinguished from a real startup failure, or a
+bind error could end up exiting zero.
+
+### Something the measurement turned up
+
+The startup log line is printed *before* `ListenAndServe` is called, so a failed bind
+produces `calculator api listening on :8097` immediately followed by the bind error. The
+log claims success for something that did not happen. It is the same class of misleading
+signal as the exit-code point above.
+
+Left unchanged and raised with the author rather than fixed silently, since it is not in the
+brief. The fix is to listen first and log afterwards:
+
+```go
+l, err := net.Listen("tcp", addr)
+if err != nil {
+    log.Fatal(err)
+}
+log.Printf("calculator api listening on %s, allowed origin %q", addr, allowedOrigin)
+if err := srv.Serve(l); err != nil {
+    log.Fatal(err)
+}
+```
+
+### Verification after the changes
+
+`gofmt` and `go vet` clean. `internal/calc` and `internal/httpapi` both at 100.0% statement
+coverage, `cmd/server` at 33.3% with only `main` uncovered, 96.1% overall. Twenty-one
+mutations across the backend, all killed.

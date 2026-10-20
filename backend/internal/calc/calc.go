@@ -40,5 +40,8 @@ func finite(v float64) (float64, error) {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return 0, ErrNonFiniteResult
 	}
+	if v == 0 {
+		return 0, nil // not redundant: collapses negative zero, which serialises as -0
+	}
 	return v, nil
 }
