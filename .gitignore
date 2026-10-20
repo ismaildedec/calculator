@@ -1,0 +1,35 @@
+# ---- Go ----
+# Compiled binaries (the server binary is built, never committed)
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+backend/server
+backend/calculator
+
+# Test and coverage artifacts. COVERAGE.md is written by hand and IS committed;
+# the generated raw profile and HTML report are not.
+*.test
+coverage.out
+coverage.html
+coverage/
+
+# ---- Node / frontend ----
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
+
+# ---- Environment ----
+.env
+.env.*
+!.env.example
+
+# ---- Editors / OS ----
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
