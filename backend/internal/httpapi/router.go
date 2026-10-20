@@ -1,31 +1,37 @@
 package httpapi
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/ismaildedec/calculator/backend/internal/calc"
+)
+
+type operation struct {
+	name    string
+	handler http.HandlerFunc
+}
 
 // One list drives both registrations each operation needs, so an operation cannot end up
 // in the POST routes without its method fallback.
-var operations = []struct {
-	name    string
-	handler http.HandlerFunc
-}{
-	{"add", handleAdd},
-	{"subtract", handleSubtract},
-	{"multiply", handleMultiply},
-	{"divide", handleDivide},
-	{"power", handlePower},
-	{"percentage", handlePercentage},
-	{"sqrt", handleSqrt},
+var operations = []operation{
+	binary("add", calc.Add),
+	binary("subtract", calc.Subtract),
+	binary("multiply", calc.Multiply),
+	binary("divide", calc.Divide),
+	binary("power", calc.Power),
+	binary("percentage", calc.Percentage),
+	unary("sqrt", calc.Sqrt),
 }
 
 func NewRouter(allowedOrigin string) http.Handler {
 	mux := http.NewServeMux()
 
-	for _, operation := range operations {
-		mux.HandleFunc("POST /api/v1/"+operation.name, operation.handler)
+	for _, op := range operations {
+		mux.HandleFunc("POST /api/v1/"+op.name, op.handler)
 
 		// The pattern above matches POST only; without this one the mux answers every other
 		// method with its own plain-text 405.
-		mux.HandleFunc("/api/v1/"+operation.name, handleMethodNotAllowed)
+		mux.HandleFunc("/api/v1/"+op.name, handleMethodNotAllowed)
 	}
 
 	mux.HandleFunc("/", handleNotFound)

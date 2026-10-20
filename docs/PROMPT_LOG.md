@@ -1070,3 +1070,56 @@ was actually measured.
 Both images were rebuilt and the stack re-checked through nginx: `1e300 % 1e10` answers
 `1e308`, `7 % 3` still answers `0.21`, a stray closing brace is a 400, and `PUT` on an
 operation is a JSON 405.
+
+---
+
+## Entry 009 - The duplicated handlers, after all
+
+### Instruction received
+
+> The handlers were copy-pasted. Not fixed: handler.go still repeats the same body in six
+> binary handlers. Fix it.
+
+This is the finding the author had declined in entry 008, keeping option A from
+entry 001. Seeing it listed as outstanding changed their mind, which is theirs to change;
+the earlier answer was recorded, not a commitment.
+
+### What replaced the seven handlers
+
+Decode, compute, write is one sequence, so it is written once in two factories - `binary`
+and `unary`, differing only in how many operands they read - and the routing table pairs
+each name with its arithmetic function:
+
+```go
+var operations = []operation{
+    binary("add", calc.Add),
+    ...
+    unary("sqrt", calc.Sqrt),
+}
+```
+
+The name now appears exactly once per operation, where before it appeared three times: in
+the handler's `writeResult`, in the routing table, and in the method-fallback list.
+`handler.go` went from 114 lines to 52.
+
+This does not reopen the `/calculate` question from entry 001. There is still one endpoint
+per operation and still a 404 for an operation that does not exist; what changed is how
+the handler behind each route is constructed, not what the API looks like from outside.
+
+### A coverage number that moved without any test changing
+
+Backend statement coverage dropped from 94.5% to 92.5%, and nothing got worse. The
+duplicated handler bodies were 43 fully covered statements; deleting them shrank the
+denominator, so the nine uncovered statements in `main` went from 5.5% of the total to
+7.5%. `internal/calc` and `internal/httpapi` are both still at 100%.
+
+Worth recording because the arithmetic is counterintuitive: removing well-tested code
+lowers an overall coverage percentage. A gate that only watched the headline number would
+have failed this change for improving the code.
+
+### Verification
+
+`gofmt` and `go vet` clean, 112 sub-tests passing, and the mutation set extended with two
+checks aimed at the new factories - the binary factory swapping its operands, and every
+response reporting the operation name "add". Twenty-eight backend mutations now, all
+killed; fifty-two across both layers.

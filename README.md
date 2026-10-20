@@ -238,14 +238,29 @@ Under Docker there is no CORS check at all: nginx serves the built frontend and 
 `/api/` to the backend, so the browser only ever talks to one origin. The frontend picks
 its base URL accordingly, which is why the Docker image needs no build argument.
 
-### One endpoint per operation, one named handler per endpoint
+### One endpoint per operation, built from one table
 
-The alternative was a single `/calculate` endpoint taking the operation as a field, or a
-registry of operations behind one generic handler. Both are shorter. Named handlers were
-chosen so that the URL and the code have the same shape and `/api/v1/divide` leads to
-`handleDivide` with nothing in between; the duplication is seven eight-line functions, and
-every failure still passes through one `writeError`, so the error contract cannot drift
-between endpoints.
+The alternative was a single `/calculate` endpoint taking the operation as a field.
+Separate endpoints were chosen because the URL then says what it does, and because a
+client calling the wrong one gets a 404 rather than a validation error.
+
+The handlers are not written out seven times, though. Decode, compute, write is one
+sequence, so it lives in two small factories - `binary` and `unary`, which differ only in
+how many operands they read - and a single table pairs each operation name with the
+arithmetic function behind it:
+
+```go
+var operations = []operation{
+    binary("add", calc.Add),
+    ...
+    unary("sqrt", calc.Sqrt),
+}
+```
+
+That table also registers the method fallback for each path, so an operation cannot reach
+the routes without one, and its name exists in exactly one place. Every failure still
+passes through a single `writeError`, so the error contract cannot drift between
+endpoints.
 
 ### Percentage means "b percent of a"
 

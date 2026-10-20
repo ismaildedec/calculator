@@ -26,7 +26,12 @@ npm run test:coverage
 | `internal/calc` | 100.0% |
 | `internal/httpapi` | 100.0% |
 | `cmd/server` | 25.0% |
-| **total** | **94.5%** |
+| **total** | **92.5%** |
+
+The total is the only figure below 100% because `main` is deliberately not unit tested, and
+it moves when code is removed rather than when tests are: folding seven duplicated handlers
+into two factories deleted 43 fully covered statements, which raised `main`'s share of the
+whole from 5.5% to 7.5% without any test changing.
 
 ## Frontend
 
@@ -58,9 +63,10 @@ and a variable set to the empty string both fall back to the default.
 
 Full statement coverage can be reached by tests that assert nothing useful. Each suite was
 therefore checked by mutation: the source was deliberately broken in one place at a time
-and the suite had to fail. Fifty mutations were applied in total and all fifty were killed.
+and the suite had to fail. Fifty-two mutations were applied in total and all fifty-two
+were killed.
 
-**Backend, 26 mutations.** Arithmetic: removing the non-finite guard; returning the
+**Backend, 28 mutations.** Arithmetic: removing the non-finite guard; returning the
 non-finite value instead of an error; removing the division-by-zero guard; removing the
 negative-sqrt guard; no longer collapsing negative zero; subtract adding; multiply
 dividing; divide inverting its operands; power swapping its operands; percentage dividing
@@ -71,7 +77,8 @@ accepting a missing operand; reporting a type error as invalid JSON. Error contr
 answering division by zero with 422; dropping the field name from that error; answering
 overflow with 400; dropping the JSON content type. Routing and CORS: removing the
 method-not-allowed routes; removing the not-found route; removing the percentage entry
-from the routing table; sending an empty allowed origin; no longer answering preflight
+from the routing table; the binary factory swapping its operands; every response claiming
+to be "add"; sending an empty allowed origin; no longer answering preflight
 requests; dropping the allowed-methods header.
 
 **Frontend, 24 mutations.** Entry rules: appending digits to a finished result; allowing a
