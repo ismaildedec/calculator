@@ -1,0 +1,21 @@
+export type OperationId = 'add' | 'subtract' | 'multiply' | 'divide' | 'power' | 'sqrt'
+
+export interface OperandPayload {
+  a: number
+  b?: number
+}
+
+export interface SuccessResponse {
+  operation: OperationId
+  result: number
+}
+
+// field is a plain string rather than 'a' | 'b': an unknown-field error names whatever
+// the caller sent.
+export interface ErrorResponse {
+  error: {
+    code: string
+    message: string
+    field?: string
+  }
+}

@@ -603,3 +603,141 @@ if err := srv.Serve(l); err != nil {
 `gofmt` and `go vet` clean. `internal/calc` and `internal/httpapi` both at 100.0% statement
 coverage, `cmd/server` at 33.3% with only `main` uncovered, 96.1% overall. Twenty-one
 mutations across the backend, all killed.
+
+---
+
+## Entry 005 - The frontend
+
+### Instruction received
+
+> Fix it, then move on to phase 4.
+
+The fix is the misleading startup log from entry 004: bind first, log second. `net.Listen`
+now runs before the log line and `srv.Serve` takes the listener, so `Addr` on the server
+struct became dead configuration and was removed. Measured both ways afterwards: a
+successful start logs `calculator api listening on :8096`, and a failed bind logs only the
+bind error and exits 1, with no line claiming success.
+
+### Scaffold
+
+`npm create vite@latest frontend -- --template react-ts`, then the test tooling. Versions
+measured rather than assumed, because they decide what the Docker image and the README
+have to say:
+
+| Package | Version |
+| --- | --- |
+| react | 19.3.1 |
+| vite | 8.3.4 |
+| typescript | 7.0.2 |
+| vitest | 5.0.5 |
+| @testing-library/react | 16.3.3 |
+
+Installed clean, no peer conflicts, no advisories.
+
+The scaffold's demo material was deleted rather than left lying around: `src/assets`
+(three images), `public/icons.svg`, and `frontend/README.md`, which was Vite template prose
+about React Compiler and plugin choices with nothing to do with this project. Checked for
+references before deleting each one.
+
+### Shape of the UI
+
+A two-operand form, as decided in entry 001. The operation is a radio group, so it is one
+accessible control with six options rather than six buttons with invented semantics, and
+the arity in the shared operation list decides whether the second operand is rendered at
+all - selecting square root removes the field rather than disabling it.
+
+Operands are `type="text"` with `inputMode="decimal"`, not `type="number"`. A number input
+would hand validation to the browser, which means messages we do not control, differing by
+browser, and awkward to assert in a test. The brief asks specifically for input validation
+and error handling, so those belong to us.
+
+Editing either operand discards the displayed result. A result left on screen next to
+operands it was not computed from is simply a false statement, and it is the kind of bug
+nobody files because it looks like staleness rather than wrongness.
+
+### The client
+
+`calculate` returns a discriminated union rather than throwing. A thrown error would mean
+try/catch in the component for something that is not exceptional at all - division by zero
+is a perfectly ordinary outcome of this form - and a union makes the two paths equally
+visible to the type checker.
+
+It also validates what comes back instead of trusting it: a non-JSON body, a success
+without a numeric `result`, and an error without a `code` all become `INVALID_RESPONSE`
+rather than being allowed to reach the UI as `undefined`. A fetch rejection becomes
+`NETWORK_ERROR` with a message that names the likely cause.
+
+One detail is a direct consequence of a backend decision: the request for a unary
+operation must omit `b` entirely, because the service rejects unknown fields. Sending
+`{"a":9,"b":null}` to `/sqrt` would turn a valid calculation into a 400. There is a test
+asserting the serialised body is exactly `{"a":9}`.
+
+### Validation
+
+Three distinct messages rather than one: empty, unparseable, and out of range. `Number('')`
+is `0` in JavaScript, so the empty case has to be checked before parsing or a blank field
+would silently calculate with zero.
+
+The backend validates all of this again. That is deliberate, not redundant: the frontend
+check exists so a mistake is reported instantly without a round trip, and the backend check
+exists because an API cannot trust its callers.
+
+### A mistake in my own test
+
+The first run failed one test. The button label changes to `Calculating...` while a request
+is in flight, and the query I had written looked for `/calculate/i`, which does not match
+`Calculating`. The component was right and the test was wrong - a useful reminder that a red
+test is not automatically a bug in the code.
+
+### Verification
+
+| Check | Result |
+| --- | --- |
+| `tsc -b` | clean |
+| `vite build` | succeeds, 223 kB bundle, 70 kB gzipped |
+| `oxlint` | 0 warnings, 0 errors over 11 files and 116 rules |
+| `vitest run` | 40 tests in 5 files, all passing |
+| statements / branches / functions / lines | 100% / 100% / 100% / 100% |
+
+The clean lint result was not taken at face value: oxlint printed nothing at all, which
+looks the same as not having run. A throwaway file containing an unused variable and an
+`eval` call was linted and produced two warnings, so the silence is real. The file was
+deleted immediately.
+
+Coverage reports `src/api/types.ts` as an empty file. It holds only type declarations, so
+it compiles to nothing and has no statements to cover.
+
+Coverage was again not treated as evidence on its own. Eleven mutations were applied to the
+frontend - accepting an empty operand, accepting a non-numeric one, submitting despite
+validation errors, treating every operation as binary, never marking a field invalid, no
+longer rendering the service error, treating a failed response as a success, skipping the
+result type check, calling the wrong endpoint, and mislabelling a network failure. All
+eleven were killed.
+
+Copying the project for each mutation was impractical here because of `node_modules`, so
+the mutations are applied in place and the file is restored from a byte-for-byte backup,
+with the restore also wired to a trap so an interrupted run cannot leave a modified source
+behind, and a checksum comparison afterwards. Not `git checkout`: the work was uncommitted,
+and restoring through git would have destroyed it.
+
+### Measured against the real backend
+
+Both halves were started together and exercised, since this is what the README will tell a
+reader to do and the most common way a take-home fails is that those instructions do not
+work.
+
+The backend answered `{"operation":"divide","result":2.5}` to a request carrying
+`Origin: http://127.0.0.1:5173`, with `Access-Control-Allow-Origin: *` from the default, and
+the preflight returned 204 with all three CORS headers. The dev server served the app shell
+with the right title and entry point, and the production bundle contains the real UI strings
+and the API path.
+
+One finding that changes the documentation: **the Vite dev server binds IPv6 only on this
+machine.** `http://localhost:5173` and `http://[::1]:5173` both answer; `http://127.0.0.1:5173`
+refuses the connection. The README has to say `localhost`, because telling a reader to open
+`127.0.0.1:5173` would hand them a broken instruction.
+
+### Next
+
+Phase 5: the Dockerfiles and compose setup with nginx proxying `/api/`, the README with
+setup instructions, API examples and the design decisions, and `COVERAGE.md`.
