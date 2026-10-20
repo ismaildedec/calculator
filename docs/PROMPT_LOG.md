@@ -388,3 +388,130 @@ the brief does not ask for. Flagged for a decision.
 Phase 3: the HTTP layer - six handlers, the shared decode and response helpers, the error
 mapping measured above, the CORS middleware with its `OPTIONS` preflight test, and
 rejection of trailing content.
+
+---
+
+## Entry 003 - The HTTP layer
+
+### Instruction received
+
+> Pushed, let us continue.
+
+The negative-zero question from entry 002 was still unanswered. Since nothing in this
+phase depends on it, the work went ahead on the assumption that the value is left as it
+is and documented, which is the option that adds no behaviour; switching to normalisation
+later is a one-line change.
+
+### Structure
+
+Four files, following the option A decision from entry 001. `handler.go` holds six named
+handlers, each eight lines: decode, compute, write. `decode.go` holds `decodeBinary` and
+`decodeUnary` over the pointer-operand structs, plus the mapping from decoding failures to
+the error contract. `response.go` holds the response shapes, the `apiError` type and the
+single `writeError` every failure passes through. `router.go` binds the routes and wraps
+them in the CORS middleware.
+
+`cmd/server/main.go` reads `PORT` and `ALLOWED_ORIGIN`, sets read and write timeouts on
+the server and serves. Graceful shutdown was deliberately left out: it is idiomatic, but
+the brief does not ask for it. It is noted here as a ten-line addition if the author wants
+it.
+
+### A problem the measurement did not predict
+
+With Go 1.22 method patterns, registering `POST /api/v1/add` makes the standard mux answer
+a `GET` on that path by itself - with a **plain-text** 405. That would have been the one
+response in the service not following the JSON error contract, and no test written against
+the happy path would have caught it.
+
+The fix is to register the bare path as well, so the method-constrained pattern serves
+`POST` and the bare one serves everything else:
+
+```go
+mux.HandleFunc("POST /api/v1/add", handleAdd)
+mux.HandleFunc("/api/v1/add", handleMethodNotAllowed)
+```
+
+Whether the mux treats those two as a conflict - which panics at registration rather than
+failing a build - was not assumed. The first test run answered it: the patterns coexist,
+the method-constrained one being the more specific. The six bare registrations are made in
+a loop, since that case is uniform; the six operation handlers stay explicit, which was the
+point of choosing option A.
+
+The preflight is answered in the CORS middleware, before the mux. That ordering matters:
+an `OPTIONS` request reaching the mux would have been met by `handleMethodNotAllowed`.
+
+### The error mapping
+
+Built on the decoding behaviour measured in entry 002 rather than on guesses about it. A
+`*json.UnmarshalTypeError` carrying a field name becomes `INVALID_NUMBER` naming that
+field; the same error without one means the whole body was the wrong shape and becomes
+`INVALID_JSON`. `io.EOF` is reported as an empty body rather than as malformed JSON, since
+those are different mistakes from the caller's side.
+
+The unknown-field case is the ugly one. `encoding/json` reports it as an untyped error
+whose message is the only place the field name appears, so the name is recovered by
+trimming the message prefix. The comment in the code says why, because string-matching a
+standard library message is otherwise an obvious thing to object to.
+
+Trailing content is rejected explicitly with `dec.More()`. Entry 002 measured that
+`{"a":1,"b":2}{"a":3}` is accepted by default, the decoder simply stopping after the first
+value.
+
+`writeJSON` marshals before it touches the status code, so an encoding failure can still
+be reported as a 500 with the usual error body instead of a half-written 200. This is the
+direct consequence of the `NaN` finding in entry 002.
+
+### Verification
+
+| Check | Result |
+| --- | --- |
+| `gofmt -l .` | no files listed |
+| `go vet ./...` | clean |
+| `go test ./...` | all passing |
+| `internal/calc` coverage | 100.0% |
+| `internal/httpapi` coverage | 100.0% |
+| `cmd/server` coverage | 33.3% |
+| total | 96.0% |
+
+The first run of the HTTP tests reported 85.3%, and the gaps were not random: the error
+branches of five handlers had no test, which is to say the contract itself was untested on
+most endpoints. Those cases were added for that reason, not to move the number. The only
+statements now uncovered anywhere are those of `main`, which binds a port; that is left
+untested on purpose and recorded as such rather than papered over.
+
+Mutation checking was extended to the whole backend. Twenty mutations across arithmetic,
+decoding, the error contract, routing and CORS - among them accepting unknown fields,
+accepting trailing content, answering division by zero with 422, dropping the JSON content
+type, removing the method-not-allowed routes, sending an empty allowed origin and no longer
+answering preflight requests. All twenty were killed.
+
+### Evidence from a running server
+
+The server was built, started on port 8099 with `ALLOWED_ORIGIN=http://localhost:5173`,
+and exercised with curl. Measured, not predicted:
+
+| Request | Status | Body |
+| --- | --- | --- |
+| `add {"a":2,"b":3}` | 200 | `{"operation":"add","result":5}` |
+| `divide {"a":10,"b":4}` | 200 | `{"operation":"divide","result":2.5}` |
+| `add {"a":0.1,"b":0.2}` | 200 | `{"operation":"add","result":0.30000000000000004}` |
+| `divide {"a":1,"b":0}` | 400 | `DIVISION_BY_ZERO`, field `b` |
+| `sqrt {"a":-4}` | 400 | `NEGATIVE_SQRT`, field `a` |
+| `power {"a":10,"b":400}` | 422 | `NON_FINITE_RESULT` |
+| `add {"a":1}` | 400 | `MISSING_FIELD`, field `b` |
+| `add {"a":"x","b":2}` | 400 | `INVALID_NUMBER`, field `a` |
+| `add {"a":1,"b":2,"c":3}` | 400 | `UNKNOWN_FIELD`, field `c` |
+| `add {"a":1,` | 400 | `INVALID_JSON` |
+| `add` with no body | 400 | `INVALID_JSON`, "request body is empty" |
+| `GET add` | 405 | `METHOD_NOT_ALLOWED`, `Allow: POST` |
+| `POST percentage` | 404 | `NOT_FOUND` |
+
+The preflight answered `204` with the three CORS headers and an empty body, and the
+configured origin was echoed rather than the `*` default, confirming `ALLOWED_ORIGIN` is
+actually read. The `0.1 + 0.2` row is the entry 002 measurement arriving in a real
+response, which is what the README will document as an assumption.
+
+### Next
+
+Phase 4: the frontend - the two-operand form, a typed client, validation before the request
+is sent, rendering of the error contract, basic mobile support, and Vitest tests.
