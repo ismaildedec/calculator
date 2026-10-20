@@ -33,6 +33,7 @@ func TestOperationsSucceed(t *testing.T) {
 		{name: "multiply", path: "/api/v1/multiply", body: `{"a":4,"b":3}`, want: 12},
 		{name: "divide", path: "/api/v1/divide", body: `{"a":10,"b":4}`, want: 2.5},
 		{name: "power", path: "/api/v1/power", body: `{"a":2,"b":10}`, want: 1024},
+		{name: "percentage", path: "/api/v1/percentage", body: `{"a":200,"b":15}`, want: 30},
 		{name: "sqrt", path: "/api/v1/sqrt", body: `{"a":9}`, want: 3},
 		{name: "negative operands", path: "/api/v1/add", body: `{"a":-2,"b":-3}`, want: -5},
 		{name: "float64 rounding is passed through", path: "/api/v1/add", body: `{"a":0.1,"b":0.2}`, want: 0.30000000000000004},
@@ -114,6 +115,15 @@ func TestErrorResponses(t *testing.T) {
 			wantStatus: http.StatusBadRequest, wantCode: codeMissingField, wantField: "b",
 		},
 		{
+			name: "missing operand on percentage", method: http.MethodPost, path: "/api/v1/percentage", body: `{"a":1}`,
+			wantStatus: http.StatusBadRequest, wantCode: codeMissingField, wantField: "b",
+		},
+		{
+			name: "percentage overflows the range", method: http.MethodPost, path: "/api/v1/percentage",
+			body:       `{"a":1.7976931348623157e308,"b":1.7976931348623157e308}`,
+			wantStatus: http.StatusUnprocessableEntity, wantCode: codeNonFiniteResult,
+		},
+		{
 			name: "missing operand on sqrt", method: http.MethodPost, path: "/api/v1/sqrt", body: `{}`,
 			wantStatus: http.StatusBadRequest, wantCode: codeMissingField, wantField: "a",
 		},
@@ -182,7 +192,7 @@ func TestErrorResponses(t *testing.T) {
 			wantStatus: http.StatusMethodNotAllowed, wantCode: codeMethodNotAllowed,
 		},
 		{
-			name: "operation that does not exist", method: http.MethodPost, path: "/api/v1/percentage", body: `{"a":1,"b":2}`,
+			name: "operation that does not exist", method: http.MethodPost, path: "/api/v1/factorial", body: `{"a":1,"b":2}`,
 			wantStatus: http.StatusNotFound, wantCode: codeNotFound,
 		},
 		{

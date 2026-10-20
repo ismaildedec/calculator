@@ -1,5 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { calculate } from './client'
+import { calculate, resolveBaseUrl } from './client'
+
+describe('resolveBaseUrl', () => {
+  it('is same-origin in a production build, where nginx proxies /api/', () => {
+    expect(resolveBaseUrl({ PROD: true })).toBe('')
+  })
+
+  it('points at the backend port in a dev build', () => {
+    expect(resolveBaseUrl({ PROD: false })).toBe('http://localhost:8080')
+  })
+
+  it('lets the environment override either default', () => {
+    expect(resolveBaseUrl({ PROD: true, VITE_API_BASE_URL: 'https://api.example.com' })).toBe(
+      'https://api.example.com',
+    )
+    expect(resolveBaseUrl({ PROD: false, VITE_API_BASE_URL: '' })).toBe('')
+  })
+})
 
 const fetchMock = vi.fn()
 

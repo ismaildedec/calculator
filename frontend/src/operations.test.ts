@@ -12,6 +12,7 @@ describe('OPERATIONS', () => {
       'multiply',
       'divide',
       'power',
+      'percentage',
       'sqrt',
     ])
   })
@@ -29,6 +30,6 @@ describe('operationById', () => {
   })
 
   it('fails loudly for an id that does not exist', () => {
-    expect(() => operationById('percentage' as OperationId)).toThrow(/unknown operation/)
+    expect(() => operationById('factorial' as OperationId)).toThrow(/unknown operation/)
   })
 })

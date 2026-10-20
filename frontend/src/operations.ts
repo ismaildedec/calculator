@@ -13,6 +13,7 @@ export const OPERATIONS: readonly Operation[] = [
   { id: 'multiply', label: 'Multiply', symbol: '×', operandCount: 2 },
   { id: 'divide', label: 'Divide', symbol: '÷', operandCount: 2 },
   { id: 'power', label: 'Power', symbol: '^', operandCount: 2 },
+  { id: 'percentage', label: 'Percentage', symbol: '%', operandCount: 2 },
   { id: 'sqrt', label: 'Square root', symbol: '√', operandCount: 1 },
 ]
 

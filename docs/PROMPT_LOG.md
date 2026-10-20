@@ -741,3 +741,220 @@ refuses the connection. The README has to say `localhost`, because telling a rea
 
 Phase 5: the Dockerfiles and compose setup with nginx proxying `/api/`, the README with
 setup instructions, API examples and the design decisions, and `COVERAGE.md`.
+
+---
+
+## Entry 006 - Docker, documentation, and a clean-clone test
+
+### Instruction received
+
+> Pushed, start.
+>
+> I want to test it myself too, so at the end tell me how to test the project.
+
+### The build-time trap, and a verification of mine that was wrong
+
+The frontend needs a different API base in each setup: the backend's own port in
+development, same-origin under nginx. The obvious implementation is to set
+`VITE_API_BASE_URL=""` in the Dockerfile, but that leans on an empty string surviving
+Vite's environment injection. If it did not, the image would quietly bake in
+`http://localhost:8080` - and on a developer's own machine that might even appear to work,
+because the host really does have a backend on 8080. A bug that only shows up on someone
+else's computer.
+
+So the rule became a function instead, deriving the base from `PROD` with the variable as
+an override, which means the image needs no build argument at all, and the rule is unit
+tested for all three inputs.
+
+The first check of this was a bad test: it grepped the built bundle for `localhost:8080`
+and reported a failure. The string is indeed present, and the verdict was still wrong -
+presence of a literal is not behaviour. Reading the emitted code settled it:
+
+```js
+function d(e){return e.VITE_API_BASE_URL??(e.PROD?``:`http://localhost:8080`)}
+var f=d({BASE_URL:`/`,DEV:!1,MODE:`production`,PROD:!0,SSR:!1})
+```
+
+The call passes `PROD:!0` with no `VITE_API_BASE_URL`, so the function returns the empty
+string and the request template `fetch(\`${f}/api/v1/${e}\`)` resolves to `/api/v1/add`.
+The literal survives only as a dead branch the minifier could not remove, since the choice
+is made at runtime from an injected object.
+
+The check was replaced with one that asserts the thing that matters: that the injected
+object at the call site carries `PROD:!0` and no baked-in override. Noted here because the
+first version is the kind of test that fails for the wrong reason and, had it been the
+other way around, would have passed for the wrong reason too.
+
+### Images
+
+The backend builds to `scratch`. A statically linked Go binary needs no shell, no package
+manager and no CA certificates, the last only because this service makes no outbound
+calls - a service that did would need them copied in. The result is **8.3 MB**. The
+container runs as uid 65534 rather than root, written numerically because `scratch` has no
+`/etc/passwd` to resolve a name against.
+
+The frontend builds with `node:22-alpine` and is served by `nginx:alpine`, **103 MB**. Its
+`.dockerignore` is not decoration: without `node_modules` excluded, the host's installed
+tree would be copied into the build context, defeating the `npm ci` layer and potentially
+carrying platform-specific binaries into a Linux image.
+
+`proxy_pass http://backend:8080;` has no trailing slash, so `/api/v1/add` reaches the
+backend unchanged. nginx resolves that hostname when it loads its configuration rather
+than per request, so `depends_on` is what makes the name resolvable in time.
+
+Compose publishes the backend on 8080 as well as serving the frontend on 3000. That is so
+the `curl` examples in the README work against the Docker stack and not only against
+`go run`; the frontend itself never uses that port.
+
+### Documentation
+
+`README.md` covers the two ways to run it, the six endpoints, the full error-code table,
+runnable `curl` examples with their actual output, and a design-decisions section carrying
+the assumptions this log accumulated: float64 rounding left visible, non-finite results as
+errors, negative zero normalised, a missing operand distinguished from a zero one, unknown
+fields rejected, CORS handled per environment, one handler per endpoint, percentage
+omitted, validation on both sides, and graceful shutdown considered and declined with the
+reason the author gave.
+
+`COVERAGE.md` carries the numbers, the commands to reproduce them, what is deliberately
+not covered, and the mutation results - because statement coverage alone is not evidence
+that a suite detects anything.
+
+### Numbers at the end of the phase
+
+| Layer | Tests | Coverage |
+| --- | --- | --- |
+| Backend | 16 functions, 74 sub-tests | `calc` 100%, `httpapi` 100%, `cmd/server` 25.0%, total 94.2% |
+| Frontend | 43 tests in 5 files | 100% statements, branches, functions and lines |
+
+The backend total fell from 96.1% to 94.2% during this phase. Nothing regressed: `main`
+grew by the `net.Listen` fix, so the one function deliberately left uncovered now accounts
+for more statements. Recorded rather than quietly rounded up.
+
+### The two verifications that mattered most
+
+Entry 001 predicted that the most likely way this submission fails is that the README's
+instructions do not work on someone else's machine. Two checks were aimed at exactly that.
+
+First, every `curl` example in the README was run verbatim against the running stack and
+its output compared with what the README claims. All seven matched, including status lines
+and error bodies.
+
+Second, a clean-clone test. The files git would actually hand someone - tracked plus
+untracked and not ignored, 47 of them, with no `node_modules`, no `dist` and no `coverage`
+- were copied to a separate directory and the project was started there from nothing:
+
+| From the clean copy | Result |
+| --- | --- |
+| `docker compose up --build` | both images built, stack came up |
+| `http://localhost:3000` | serves the app, title `Calculator` |
+| `add` through the UI origin | `{"operation":"add","result":5}` |
+| `divide` by zero through the UI origin | the 400 error contract |
+| bundle built inside the image | `PROD:!0`, no override, same-origin |
+| `go vet ./...` and `go test ./...` | clean, all packages passing |
+| `npm install` from the lockfile alone | 0 vulnerabilities |
+| `npm test` | 43 tests passing |
+| `npm run lint`, `npm run build` | clean, built in 343 ms |
+
+The temporary copy and its images were removed afterwards.
+
+---
+
+## Entry 007 - Replacing the form with a keypad
+
+### Instruction received
+
+> I do not like this design. I do not want to type a number and then pick an operation.
+> Let us change the calculator to the keypad layout you offered me in the model choice.
+
+Followed by two decisions, asked before any code was written because each changed work in
+both layers:
+
+> Add percentage to the backend.
+>
+> Yes, the physical keyboard should work too.
+
+The keypad was the option entry 001 argued against, on the grounds that its input state
+machine would add needless complexity. That argument was made before anything existed; the
+author has now seen the result and chosen differently, which is a different situation, so
+the keypad was built rather than re-litigated.
+
+### What was thrown away
+
+`CalculatorForm.tsx` and its fourteen tests. Also `validation.ts` and its fourteen tests,
+for a reason worth recording: with a keypad there is no way to type a letter, so
+`validateOperand`'s "not a number" and "empty" branches became unreachable. Keeping tested
+code that can never run would have been worse than deleting it.
+
+What replaced it is narrower and entirely reachable: `entry.ts`, the rules for the number
+being typed, as pure string functions - `appendDigit`, `appendDot`, `toggleSign`,
+`removeLast`, `entryToOperand`. Extracting them means the fiddly parts (a lone zero is
+replaced rather than grown, a second decimal point is refused, backspacing to nothing
+yields `0` rather than an empty string) are unit tested directly instead of only through
+the component.
+
+One validation case survives and is genuinely reachable: hold a digit key long enough and
+`Number()` returns `Infinity`, which `JSON.stringify` would send as `null`. That is caught
+before a request is made.
+
+### Percentage
+
+`Percentage(a, b)` returns b percent of a, so `{"a":200,"b":15}` is 30. Entry 001 left the
+operation out precisely because the meaning is ambiguous; the ambiguity has not gone away,
+so the reading chosen is stated in the README and in the API table rather than left for a
+caller to discover.
+
+On the keypad it is simply another binary operator - `200 % 15 =` - rather than the
+context-sensitive key a pocket calculator has, because that is what the endpoint is.
+
+### Both suites caught a stale assumption of mine
+
+The backend test for an unknown endpoint used `/api/v1/percentage` as its example of an
+operation that does not exist. Adding percentage made that test fail with a 200, which is
+exactly right.
+
+The frontend test written in entry 005 to pin the operation list to the service's endpoints
+failed for the same reason. That test exists to catch one side drifting from the other, and
+the first drift it caught was mine.
+
+### The state machine
+
+Three pieces of state carry a calculation: `accumulator` (the value already computed),
+`pending` (the operator waiting for its right-hand side) and `replace` (whether the next
+digit starts a new number or appends to the current one).
+
+Evaluation is sequential, with no operator precedence: `2 + 3 × 4` is 20. That is how a
+standard pocket calculator behaves, and it follows from the service exposing binary
+operations - pressing an operator computes whatever was pending, so the display always
+shows the running result. `2 + 3 + 4 =` makes two requests, `add(2,3)` then `add(5,4)`.
+
+The division of labour is explicit: digits, `.`, `±`, `⌫` and `AC` edit the number being
+typed and never reach the network; the six binary operators and `√` are requests. Sending
+"multiply by -1" for a sign toggle would have been fidelity theatre rather than keeping the
+promise that the service does the arithmetic.
+
+Keyboard support maps the obvious keys and ignores input while a request is in flight, as
+the buttons do by being disabled.
+
+### Verification
+
+The first coverage run reported 90.66% and the gaps were all real behaviour rather than
+noise: the too-large guard on the operator and equals paths, failure handling mid-chain and
+after `√`, the in-flight guard on the keyboard, and five of the keyboard operator mappings.
+Tests were added for each, which brought it to 100%.
+
+| Layer | Tests | Coverage |
+| --- | --- | --- |
+| Backend | 16 functions, 84 sub-tests | `calc` 100%, `httpapi` 100%, `cmd/server` 25.0%, total 94.6% |
+| Frontend | 68 tests in 5 files | 100% statements, branches, functions and lines |
+
+The mutation checks were rewritten for the new design rather than quietly dropped, since
+the files they pointed at no longer exist. Forty mutations now, all killed: 23 on the
+backend including percentage dividing by ten and the percentage route removed, and 17 on
+the frontend including appending digits to a finished result, allowing a second decimal
+point, ignoring a repeated operator press, unbinding the keyboard, and leaving the keys
+enabled during a request.
+
+The images were rebuilt and the stack checked again: percentage answers `30` through the
+nginx proxy, the keypad's own strings are present in the shipped bundle, and the base URL
+is still resolved same-origin inside the image.

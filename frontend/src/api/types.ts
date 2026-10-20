@@ -1,4 +1,4 @@
-export type OperationId = 'add' | 'subtract' | 'multiply' | 'divide' | 'power' | 'sqrt'
+export type OperationId = 'add' | 'subtract' | 'multiply' | 'divide' | 'power' | 'percentage' | 'sqrt'
 
 export interface OperandPayload {
   a: number

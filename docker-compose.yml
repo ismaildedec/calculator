@@ -1,0 +1,14 @@
+services:
+  backend:
+    build: ./backend
+    # Published so the API can be exercised directly with curl, exactly as the README
+    # examples show. The frontend does not use this port; it goes through nginx.
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"

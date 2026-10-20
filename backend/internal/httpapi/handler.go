@@ -76,6 +76,20 @@ func handlePower(w http.ResponseWriter, r *http.Request) {
 	writeResult(w, "power", result)
 }
 
+func handlePercentage(w http.ResponseWriter, r *http.Request) {
+	a, b, err := decodeBinary(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	result, err := calc.Percentage(a, b)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeResult(w, "percentage", result)
+}
+
 func handleSqrt(w http.ResponseWriter, r *http.Request) {
 	a, err := decodeUnary(r)
 	if err != nil {

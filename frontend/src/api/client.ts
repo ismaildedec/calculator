@@ -1,8 +1,19 @@
 import type { ErrorResponse, OperandPayload, OperationId, SuccessResponse } from './types'
 
-// Development talks to the backend's own port; the Docker image is built with this set to
-// an empty string, where nginx serves both from one origin.
-const baseUrl: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
+export interface BaseUrlEnv {
+  VITE_API_BASE_URL?: string
+  PROD: boolean
+}
+
+// A production build is served by nginx, which proxies /api/ to the backend, so requests
+// are same-origin and the base is empty. A dev build talks to the backend's own port.
+// VITE_API_BASE_URL overrides either. Deriving this from PROD rather than from the
+// variable alone means the Docker image needs no build argument to be correct.
+export function resolveBaseUrl(env: BaseUrlEnv): string {
+  return env.VITE_API_BASE_URL ?? (env.PROD ? '' : 'http://localhost:8080')
+}
+
+const baseUrl = resolveBaseUrl(import.meta.env)
 
 export type CalculationOutcome =
   | { ok: true; result: number }

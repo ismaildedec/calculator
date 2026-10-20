@@ -50,6 +50,14 @@ func TestBinaryOperations(t *testing.T) {
 		{name: "power of fractional exponent", op: Power, a: 9, b: 0.5, want: 3},
 		{name: "power overflows to infinity", op: Power, a: 10, b: 400, wantErr: ErrNonFiniteResult},
 		{name: "power of negative base with fractional exponent is undefined", op: Power, a: -8, b: 0.5, wantErr: ErrNonFiniteResult},
+
+		{name: "percentage of a whole", op: Percentage, a: 200, b: 15, want: 30},
+		{name: "percentage of a negative whole", op: Percentage, a: -200, b: 15, want: -30},
+		{name: "percentage by a negative rate", op: Percentage, a: 200, b: -15, want: -30},
+		{name: "percentage of zero", op: Percentage, a: 0, b: 50, want: 0},
+		{name: "zero percent", op: Percentage, a: 200, b: 0, want: 0},
+		{name: "a whole hundred percent", op: Percentage, a: 42, b: 100, want: 42},
+		{name: "percentage overflows the range", op: Percentage, a: math.MaxFloat64, b: math.MaxFloat64, wantErr: ErrNonFiniteResult},
 	}
 
 	for _, tt := range tests {
@@ -153,11 +161,12 @@ func TestResultsAreAlwaysMarshalable(t *testing.T) {
 	}
 
 	binary := map[string]func(a, b float64) (float64, error){
-		"Add":      Add,
-		"Subtract": Subtract,
-		"Multiply": Multiply,
-		"Divide":   Divide,
-		"Power":    Power,
+		"Add":        Add,
+		"Subtract":   Subtract,
+		"Multiply":   Multiply,
+		"Divide":     Divide,
+		"Power":      Power,
+		"Percentage": Percentage,
 	}
 
 	for name, op := range binary {

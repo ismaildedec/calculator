@@ -1,172 +1,120 @@
 .app {
-  max-width: 30rem;
+  max-width: 23rem;
   margin: 0 auto;
   padding: 2rem 1rem 3rem;
 }
 
 h1 {
   margin: 0;
-  font-size: 1.6rem;
+  font-size: 1.5rem;
 }
 
 .subtitle {
-  margin: 0.25rem 0 1.5rem;
+  margin: 0.25rem 0 1.25rem;
   color: var(--ink-muted);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 .calculator {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  padding: 1.25rem;
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border-radius: 0.9rem;
   background-color: var(--surface);
+  overflow: hidden;
 }
 
-.operations {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.5rem;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.operations legend {
-  padding: 0 0 0.5rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--ink-muted);
-}
-
-.operation {
+.display {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.15rem;
-  padding: 0.5rem 0.25rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  font-size: 0.75rem;
-  cursor: pointer;
+  align-items: flex-end;
+  gap: 0.2rem;
+  min-height: 6.5rem;
+  padding: 1rem 1.1rem;
+  background-color: var(--display);
 }
 
-.operation input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-
-.operation:focus-within {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.operation-selected {
-  border-color: var(--accent);
-  background-color: var(--accent);
-  color: var(--accent-ink);
-}
-
-.operation-symbol {
-  font-size: 1.1rem;
-  line-height: 1.2;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.field label {
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.field input {
-  padding: 0.6rem 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background-color: var(--surface);
-  color: var(--ink);
-  font-size: 1rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.field input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.field input[aria-invalid='true'] {
-  border-color: var(--danger);
-}
-
-.field-error {
-  margin: 0;
-  color: var(--danger);
-  font-size: 0.8rem;
-}
-
-button[type='submit'] {
-  padding: 0.7rem 1rem;
-  border: 0;
-  border-radius: 0.5rem;
-  background-color: var(--accent);
-  color: var(--accent-ink);
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-button[type='submit']:disabled {
-  opacity: 0.6;
-  cursor: progress;
-}
-
-.result {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  margin: 0;
-  padding: 0.85rem 1rem;
-  border-radius: 0.5rem;
-  background-color: var(--success-surface);
-}
-
-.result-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.expression {
+  min-height: 1.2rem;
   color: var(--ink-muted);
-}
-
-.result-value {
-  font-size: 1.3rem;
-  font-weight: 600;
+  font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+  text-align: right;
 }
 
-.service-error {
-  margin: 0;
-  padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
-  background-color: var(--danger-surface);
+.entry {
+  font-size: 2.4rem;
+  font-weight: 600;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.display-error {
+  margin: 0.3rem 0 0;
   color: var(--danger);
-  font-size: 0.9rem;
+  font-size: 0.8rem;
+  text-align: right;
 }
 
-@media (max-width: 24rem) {
-  .operations {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+.keys {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background-color: var(--border);
+  border-top: 1px solid var(--border);
+}
+
+.key {
+  padding: 1.05rem 0.25rem;
+  border: 0;
+  background-color: var(--surface);
+  color: var(--ink);
+  font-size: 1.15rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.key:hover:not(:disabled) {
+  background-color: var(--key-hover);
+}
+
+.key:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.key:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.key-function {
+  color: var(--ink-muted);
+}
+
+.key-operator {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.key-equals {
+  background-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+
+.key-equals:hover:not(:disabled) {
+  background-color: var(--accent-strong);
+}
+
+@media (max-width: 22rem) {
+  .key {
+    padding: 0.85rem 0.2rem;
+    font-size: 1rem;
+  }
+
+  .entry {
+    font-size: 2rem;
   }
 }

@@ -29,6 +29,11 @@ func Power(a, b float64) (float64, error) {
 	return finite(math.Pow(a, b))
 }
 
+// Percentage returns b percent of a, so Percentage(200, 15) is 30.
+func Percentage(a, b float64) (float64, error) {
+	return finite(a * b / 100)
+}
+
 func Sqrt(a float64) (float64, error) {
 	if a < 0 {
 		return 0, ErrNegativeSqrt
